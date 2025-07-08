@@ -1,0 +1,42 @@
+/* style.css */
+/* Custom styles for the Vis.js network visualization */
+
+/* The container for the network graph */
+#network-graph {
+    width: 100%;
+    height: 100%;
+    border: 1px solid #e2e8f0; /* gray-200 */
+    background-color: #f8fafc; /* slate-50 */
+    border-radius: 0.5rem; /* rounded-lg */
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+/* Style for the pop-up that appears on node hover */
+.vis-tooltip {
+    position: absolute;
+    visibility: hidden;
+    padding: 8px 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: #ffffff;
+    background-color: rgba(30, 41, 59, 0.9); /* slate-800 with opacity */
+    border: 1px solid #475569; /* slate-600 */
+    border-radius: 6px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    z-index: 10;
+    white-space: pre-wrap; /* Allows for multiline titles */
+    max-width: 300px;
+}
+
+/* General node styling - can be overridden by specific node properties */
+.vis-network .vis-node {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Styling for the loading message */
+.vis-network .vis-loading-screen {
+    background-color: rgba(248, 250, 252, 0.8); /* slate-50 with opacity */
+    color: #0f172a; /* slate-900 */
+    font-size: 1.25rem; /* text-xl */
+    font-weight: 600;
+}

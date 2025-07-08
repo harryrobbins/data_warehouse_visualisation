@@ -1,0 +1,21 @@
+Feed ID,Data Warehouse 1,Data Warehouse 2,Data Warehouse 3,Data Warehouse 4,Data Warehouse 5,Data Warehouse 6,Data Warehouse 7,Data Warehouse 8,Data Warehouse 9,Data Warehouse 10,Data Warehouse 11,Data Warehouse 12,Data Warehouse 13,Data Warehouse 14,Data Warehouse 15,Data Warehouse 16,Data Warehouse 17,Data Warehouse 18,Data Warehouse 19,Data Warehouse 20,Data Warehouse 21,Data Warehouse 22,Feed Full Title
+F001,Y,,,,,,,,,,,,,,,,,,,,,,Customer Relationship Management Feed
+F002,Y,Y,,,,,,,,,,,,,,,,,,,,,Product Sales Transactional Data
+F003,,Y,,,,,,,,,,,,,,,,,,,,,Inventory Levels and Stock Data
+F004,,,Y,,,,,,,,,,,,,,,,,,,,Human Resources Employee Master
+F005,,,Y,,,Y,,,,,,,,,,,,,,,,,Supplier and Procurement Information
+F006,,,,Y,,,,,,,,,,,,,,,,,,,Website Clickstream Analytics
+F007,,,,,Y,,,,,,,,,,,,,,,,,,Marketing Campaign Engagement Metrics
+F008,,,,,,Y,,,,,,,,,,,,,,,,,Logistics and Shipping Records
+F009,,,,,,,Y,,,,,,,,,,,,,,,,Financial General Ledger Entries
+F010,,,,,,,Y,,Y,,,,,,,,,,,,,,Billing and Invoicing System Data
+F011,,,,,,,,Y,,,,,,,,,,,,,,,Geospatial Location Data Feed
+F012,,,,,,,,Y,,Y,,,,,,,,,,,,,Social Media Mentions and Sentiment
+F013,,,,,,,,,,Y,,,,,,,,,,,,,Customer Support Ticket Details
+F014,,,,,,,,,,,Y,,,,,,,,,,,,Manufacturing Process Sensor Data
+F015,,,,,,,,,,,,Y,,,,,,,,,,,Retail Point of Sale Transactions
+F016,,,,,,,,,,,,,Y,,,,,,,,,,Third-party Market Research Data
+F017,,,,,,,,,,,,,,Y,,,,,,,,,Compliance and Audit Trail Logs
+F018,Y,,,,,,,,,,,,,,,Y,,,,,,,Partner API Data Exchange
+F019,,,,,,,,,,,,,,,,Y,,,,,,,Mobile Application Usage Statistics
+F020,,,,,,,,,,,,,,,,,Y,,,,,,Video Content Delivery Network Logs
