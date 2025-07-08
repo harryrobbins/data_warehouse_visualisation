@@ -21,6 +21,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 edges: new vis.DataSet(),
                 // Flag to control the physics simulation
                 isPhysicsEnabled: true,
+                // The currently selected layout algorithm
+                selectedLayout: 'hierarchicalLR', // 'hierarchicalLR', 'hierarchicalUD', 'force'
                 // A copy of all unique nodes across all states for efficient searching
                 allNodes: [],
             };
@@ -159,13 +161,19 @@ document.addEventListener('DOMContentLoaded', () => {
             updateGraphData() {
                 if (!this.network) return;
 
-                // By updating the DataSet objects that were passed to the network at
-                // initialization, the graph will automatically update. This is a more
-                // stable method than calling setData repeatedly.
+                // By updating the DataSet objects, the graph will automatically update.
                 this.nodes.clear();
                 this.edges.clear();
                 this.nodes.add(this.activeNodes);
                 this.edges.add(this.activeEdges);
+
+                // Animate the camera to fit the new nodes in the view
+                this.network.fit({
+                    animation: {
+                        duration: 800,
+                        easingFunction: 'easeInOutQuad'
+                    }
+                });
 
                 // Re-apply search highlighting if there's an active search term
                 if (this.searchTerm) {
@@ -179,6 +187,49 @@ document.addEventListener('DOMContentLoaded', () => {
             togglePhysics() {
                 this.isPhysicsEnabled = !this.isPhysicsEnabled;
                 this.network.setOptions({ physics: { enabled: this.isPhysicsEnabled } });
+            },
+
+            /**
+             * Applies new layout and physics options to the network.
+             */
+            updateLayout() {
+                if (!this.network) return;
+                let options = {};
+                switch (this.selectedLayout) {
+                    case 'hierarchicalUD': // Top-to-Bottom
+                        options = {
+                            layout: {
+                                hierarchical: { enabled: true, direction: 'UD', sortMethod: 'directed' }
+                            },
+                            physics: { solver: 'hierarchicalRepulsion' }
+                        };
+                        break;
+                    case 'force': // Force-directed
+                        options = {
+                            layout: {
+                                hierarchical: { enabled: false }
+                            },
+                            physics: {
+                                solver: 'barnesHut',
+                                barnesHut: {
+                                    gravitationalConstant: -8000,
+                                    springConstant: 0.04,
+                                    springLength: 95
+                                }
+                            }
+                        };
+                        break;
+                    case 'hierarchicalLR': // Left-to-Right (default)
+                    default:
+                        options = {
+                            layout: {
+                                hierarchical: { enabled: true, direction: 'LR', sortMethod: 'directed' }
+                            },
+                            physics: { solver: 'hierarchicalRepulsion' }
+                        };
+                        break;
+                }
+                this.network.setOptions(options);
             },
 
             /**
@@ -241,6 +292,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // When the search term changes, perform the search
             searchTerm() {
                 this.handleSearch();
+            },
+            // When the layout selection changes, update the network options
+            selectedLayout() {
+                this.updateLayout();
             }
         },
         // Lifecycle hook that runs after the component is mounted to the DOM
