@@ -50,18 +50,21 @@ class GraphData(BaseModel):
 app = FastAPI(
     title="Data Lineage Visualizer API",
     description="Serves data for the data lineage visualization tool.",
+    
 )
 
 # Mount static files directory
 static_path = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 
-# Setup Jinja2 templates with custom delimiters
+# Setup Jinja2 templates with custom delimiters to avoid Vue.js conflicts
 templates_path = Path(__file__).parent / "templates"
 jinja_env = jinja2.Environment(
     loader=jinja2.FileSystemLoader(templates_path),
     variable_start_string='[[',
     variable_end_string=']]',
+    block_start_string='[%',
+    block_end_string='%]',
 )
 templates = Jinja2Templates(env=jinja_env)
 
