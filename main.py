@@ -26,6 +26,8 @@ class Node(BaseModel):
     color: Dict[str, str] | None = None
     x: int | None = None  # For pre-defined layout positioning
     y: int | None = None  # For pre-defined layout positioning
+    # The 'fixed' property tells vis.js whether to respect the x/y coordinates
+    fixed: bool = Field(False, exclude=True)
 
 
 class Edge(BaseModel):
@@ -73,33 +75,6 @@ NODE_GROUPS = {
     "logical_dw": {"color": {"background": "#fee2e2", "border": "#f87171"}},
 }
 
-# Constants for clustered layout
-X_SPACING = 250
-Y_SPACING = 120
-CLUSTER_X_POS = {
-    0: 0,  # Feeds
-    1: 800,  # Warehouses / Datalake
-    2: 1600,  # Virtualisation
-    3: 2400  # Logical DWs
-}
-
-
-def assign_grid_positions(nodes: List[Node], level: int):
-    """Calculates and assigns grid positions to a list of nodes for a given level."""
-    if not nodes:
-        return
-
-    start_x = CLUSTER_X_POS[level]
-    num_nodes = len(nodes)
-    cols = int(math.ceil(math.sqrt(num_nodes)))
-    if cols == 0: return
-
-    for i, node in enumerate(nodes):
-        row = i // cols
-        col = i % cols
-        node.x = start_x + (col * X_SPACING)
-        node.y = (row * Y_SPACING)
-
 
 def get_graph_data() -> Dict[str, GraphData]:
     """Reads data and generates graph data for all three states."""
@@ -136,9 +111,6 @@ def get_graph_data() -> Dict[str, GraphData]:
 
     # --- Build State 1: Past ---
     past_nodes = feed_nodes + warehouse_nodes
-    assign_grid_positions([n for n in past_nodes if n.level == 0], 0)
-    assign_grid_positions([n for n in past_nodes if n.level == 1], 1)
-
     past_edges = [
         Edge(source=row['Feed ID'], target=dw_name.replace(" ", "_"))
         for dw_name in dw_cols
@@ -149,11 +121,6 @@ def get_graph_data() -> Dict[str, GraphData]:
 
     # --- Build State 2: Current ---
     current_nodes = feed_nodes + warehouse_nodes + [dv_node] + logical_dws
-    assign_grid_positions([n for n in current_nodes if n.level == 0], 0)
-    assign_grid_positions([n for n in current_nodes if n.level == 1], 1)
-    assign_grid_positions([n for n in current_nodes if n.level == 2], 2)
-    assign_grid_positions([n for n in current_nodes if n.level == 3], 3)
-
     current_edges = past_edges.copy()
     warehouses_to_virtualise = ["Data_Warehouse_1", "Data_Warehouse_2", "Data_Warehouse_7", "Data_Warehouse_15"]
     current_edges.extend([Edge(source=wh_id, target="dv") for wh_id in warehouses_to_virtualise])
@@ -162,11 +129,6 @@ def get_graph_data() -> Dict[str, GraphData]:
 
     # --- Build State 3: Future ---
     future_nodes = feed_nodes + [data_lake_node, dv_node] + logical_dws
-    assign_grid_positions([n for n in future_nodes if n.level == 0], 0)
-    assign_grid_positions([n for n in future_nodes if n.level == 1], 1)
-    assign_grid_positions([n for n in future_nodes if n.level == 2], 2)
-    assign_grid_positions([n for n in future_nodes if n.level == 3], 3)
-
     future_edges = [Edge(source=feed.id, target="dl") for feed in feed_nodes]
     future_edges.append(Edge(source="dl", target="dv"))
     future_edges.extend([Edge(source="dv", target=ldw.id) for ldw in logical_dws])
@@ -182,7 +144,8 @@ async def read_root(request: Request):
     """Main endpoint that renders the HTML page with the graph data."""
     try:
         all_graphs = get_graph_data()
-        graph_data_dict = {k: v.model_dump(by_alias=True) for k, v in all_graphs.items()}
+        # Use exclude_none=True to avoid sending null x/y/fixed values to the client
+        graph_data_dict = {k: v.model_dump(by_alias=True, exclude_none=True) for k, v in all_graphs.items()}
         graph_data_json = json.dumps(graph_data_dict)
         return templates.TemplateResponse(
             "index.html",
@@ -190,9 +153,4 @@ async def read_root(request: Request):
         )
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        return HTMLResponse(content="<h1>An unexpected error occurred</h1>", status_code=500)
-
-# --- To run the application:
-# 1. Install necessary packages: pip install "fastapi[all]" "pandas>=2.0" "pydantic>=2.0" jinja2
-# 2. Save this file as main.py
-# 3. Run from your terminal: uvicorn main:app --reload
+        return HTMLResponse(content=f"<h1>An unexpected error occurred</h1>", status_code=500)
