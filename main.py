@@ -77,25 +77,49 @@ NODE_GROUPS = {
 
 
 def get_graph_data() -> Dict[str, GraphData]:
-    """Reads data and generates graph data for all three states."""
-    data_path = Path(__file__).parent / "data" / "legacy_data.csv"
-    if not data_path.exists():
-        raise FileNotFoundError(f"Data file not found at {data_path}")
+    """
+    Reads data from an Excel file or a CSV fallback and generates graph data.
+    It prioritizes 'Warehouse Feeds Matrix.xlsx' and reads the specified sheet.
+    If not found, it falls back to 'warehouse_feeds.csv'.
+    """
+    data_dir = Path(__file__).parent / "data"
+    excel_path = data_dir / "Warehouse Feeds Matrix.xlsx"
+    csv_path = data_dir / "warehouse_feeds.csv"
 
-    df = pd.read_csv(data_path)
-    dw_cols = [col for col in df.columns if col.startswith('Data Warehouse')]
+    # Try to load the Excel file first
+    if excel_path.exists():
+        try:
+            # Read the specific worksheet from the Excel file
+            df = pd.read_excel(excel_path, sheet_name="Warehouse Feeds Matrix", engine='openpyxl')
+        except Exception as e:
+            # Raise an error if the Excel file can't be read
+            raise FileNotFoundError(f"Could not read Excel file at {excel_path}. Error: {e}")
+    # Fallback to the CSV file
+    elif csv_path.exists():
+        df = pd.read_csv(csv_path)
+    # If no data source is found, raise an error
+    else:
+        raise FileNotFoundError(f"No data file found. Looked for {excel_path} and {csv_path}")
+
+    # Dynamically identify column names based on their position
+    # Col A: Feed Name, Cols B-O: Warehouses, Col P: Feed Full Name
+    feed_name_col = df.columns[0]
+    feed_full_name_col = df.columns[-1]
+    dw_cols = df.columns[1:-1].tolist()
 
     # --- Create Master lists of nodes ---
     feed_nodes = [
-        Node(id=row['Feed ID'], label=row['Feed ID'], level=0, group="feed", title=f"Feed: {row['Feed Full Title']}",
-             color=NODE_GROUPS["feed"]["color"])
+        Node(id=row[feed_name_col], label=row[feed_name_col], level=0, group="feed",
+             title=f"Feed: {row[feed_full_name_col]}", color=NODE_GROUPS["feed"]["color"])
         for _, row in df.iterrows()
     ]
+
     warehouse_nodes = [
         Node(id=dw_name.replace(" ", "_"), label=dw_name, level=1, group="warehouse",
              title=f"Legacy Warehouse: {dw_name}", color=NODE_GROUPS["warehouse"]["color"])
         for dw_name in dw_cols
     ]
+
     data_lake_node = Node(id="dl", label="Data Lake", level=1, group="datalake", title="Central Data Lake",
                           color=NODE_GROUPS["datalake"]["color"])
     dv_node = Node(id="dv", label="Data Virtualisation", level=2, group="virtualisation",
@@ -111,18 +135,24 @@ def get_graph_data() -> Dict[str, GraphData]:
 
     # --- Build State 1: Past ---
     past_nodes = feed_nodes + warehouse_nodes
-    past_edges = [
-        Edge(source=row['Feed ID'], target=dw_name.replace(" ", "_"))
-        for dw_name in dw_cols
-        for _, row in df.iterrows()
-        if pd.notna(row[dw_name]) and row[dw_name] == 'Y'
-    ]
+    past_edges = []
+    # Iterate over each row to find connections between feeds and warehouses
+    for _, row in df.iterrows():
+        for dw_name in dw_cols:
+            # A connection exists if the cell is not empty (e.g., contains 'Y')
+            if pd.notna(row[dw_name]) and str(row[dw_name]).strip() != '':
+                past_edges.append(
+                    Edge(source=row[feed_name_col], target=dw_name.replace(" ", "_"))
+                )
     past_graph = GraphData(nodes=past_nodes, edges=past_edges)
 
     # --- Build State 2: Current ---
+    # Note: The logic for 'current' and 'future' states is based on the original script's
+    # assumptions. This may need to be adjusted to fit your project's roadmap.
     current_nodes = feed_nodes + warehouse_nodes + [dv_node] + logical_dws
     current_edges = past_edges.copy()
-    warehouses_to_virtualise = ["Data_Warehouse_1", "Data_Warehouse_2", "Data_Warehouse_7", "Data_Warehouse_15"]
+    # For demonstration, we assume the first four warehouses are being virtualised
+    warehouses_to_virtualise = [dw.replace(" ", "_") for dw in dw_cols[:4]]
     current_edges.extend([Edge(source=wh_id, target="dv") for wh_id in warehouses_to_virtualise])
     current_edges.extend([Edge(source="dv", target=ldw.id) for ldw in logical_dws])
     current_graph = GraphData(nodes=current_nodes, edges=current_edges)
