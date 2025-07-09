@@ -62,9 +62,9 @@
                 <div class="mb-6">
                     <label class="font-semibold text-slate-700 block mb-2">Layout Algorithm</label>
                     <div class="flex flex-col space-y-2">
+                        <button @click="selectedLayout = 'clusteredForce'" :class="{'bg-blue-600 text-white': selectedLayout === 'clusteredForce', 'bg-slate-200 hover:bg-slate-300': selectedLayout !== 'clusteredForce'}" class="w-full text-left px-4 py-2 rounded-md transition-colors duration-200">Clustered Force</button>
                         <button @click="selectedLayout = 'hierarchicalLR'" :class="{'bg-blue-600 text-white': selectedLayout === 'hierarchicalLR', 'bg-slate-200 hover:bg-slate-300': selectedLayout !== 'hierarchicalLR'}" class="w-full text-left px-4 py-2 rounded-md transition-colors duration-200">Left-to-Right</button>
                         <button @click="selectedLayout = 'hierarchicalUD'" :class="{'bg-blue-600 text-white': selectedLayout === 'hierarchicalUD', 'bg-slate-200 hover:bg-slate-300': selectedLayout !== 'hierarchicalUD'}" class="w-full text-left px-4 py-2 rounded-md transition-colors duration-200">Top-to-Bottom</button>
-                        <button @click="selectedLayout = 'force'" :class="{'bg-blue-600 text-white': selectedLayout === 'force', 'bg-slate-200 hover:bg-slate-300': selectedLayout !== 'force'}" class="w-full text-left px-4 py-2 rounded-md transition-colors duration-200">Force-Directed</button>
                     </div>
                 </div>
 

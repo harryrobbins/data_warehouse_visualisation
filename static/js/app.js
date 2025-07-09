@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Flag to control the physics simulation
                 isPhysicsEnabled: true,
                 // The currently selected layout algorithm
-                selectedLayout: 'hierarchicalLR', // 'hierarchicalLR', 'hierarchicalUD', 'force'
+                selectedLayout: 'clusteredForce', // 'clusteredForce', 'hierarchicalLR', 'hierarchicalUD'
                 // A copy of all unique nodes across all states for efficient searching
                 allNodes: [],
             };
@@ -58,85 +58,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     edges: this.edges,
                 };
 
-                // Configuration options for the graph
+                // Base configuration options for the graph
                 const options = {
-                    // Physics engine settings for layout
                     physics: {
-                        enabled: true,
-                        solver: 'hierarchicalRepulsion',
-                        hierarchicalRepulsion: {
-                            centralGravity: 0.0,
-                            springLength: 200,
-                            springConstant: 0.01,
-                            nodeDistance: 150,
-                            damping: 0.15,
-                        },
-                        stabilization: {
-                            iterations: 200,
-                            fit: true,
-                        },
+                        stabilization: { iterations: 200, fit: true },
                     },
-                    // Interaction settings (hover, zoom, etc.)
                     interaction: {
                         hover: true,
                         tooltipDelay: 200,
                         navigationButtons: false,
                         keyboard: true,
                     },
-                    // Layout settings for a left-to-right hierarchical structure
-                    layout: {
-                        hierarchical: {
-                            enabled: true,
-                            direction: 'LR', // Left-to-Right
-                            sortMethod: 'directed',
-                            levelSeparation: 250,
-                            nodeSpacing: 120,
-                        },
-                    },
-                    // Default node appearance
                     nodes: {
                         shape: 'box',
                         margin: 12,
-                        font: {
-                            size: 14,
-                            face: 'Inter, sans-serif',
-                            color: '#1e293b' // slate-800
-                        },
+                        font: { size: 14, face: 'Inter, sans-serif', color: '#1e293b' },
                         borderWidth: 2,
-                        shadow: {
-                            enabled: true,
-                            color: 'rgba(0,0,0,0.1)',
-                            size: 5,
-                            x: 3,
-                            y: 3
-                        },
+                        shadow: { enabled: true, color: 'rgba(0,0,0,0.1)', size: 5, x: 3, y: 3 },
                     },
-                    // Default edge appearance
                     edges: {
-                        arrows: {
-                            to: { enabled: true, scaleFactor: 0.7 }
-                        },
-                        color: {
-                            color: '#94a3b8', // slate-400
-                            highlight: '#0f172a', // slate-900
-                            hover: '#475569', // slate-600
-                        },
-                        smooth: {
-                            enabled: true,
-                            type: 'cubicBezier',
-                            forceDirection: 'horizontal',
-                            roundness: 0.6,
-                        },
+                        arrows: { to: { enabled: true, scaleFactor: 0.7 } },
+                        color: { color: '#94a3b8', highlight: '#0f172a', hover: '#475569' },
+                        smooth: { enabled: true, type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.6 },
                         width: 1.5,
                     },
                 };
 
                 this.network = new vis.Network(container, data, options);
 
-                // Create a comprehensive list of all unique nodes from all states for searching
                 this.populateAllNodes();
-
-                // Set the initial data
+                this.updateLayout(); // Apply initial layout settings
                 this.updateGraphData();
             },
 
@@ -161,21 +112,15 @@ document.addEventListener('DOMContentLoaded', () => {
             updateGraphData() {
                 if (!this.network) return;
 
-                // By updating the DataSet objects, the graph will automatically update.
                 this.nodes.clear();
                 this.edges.clear();
                 this.nodes.add(this.activeNodes);
                 this.edges.add(this.activeEdges);
 
-                // Animate the camera to fit the new nodes in the view
                 this.network.fit({
-                    animation: {
-                        duration: 800,
-                        easingFunction: 'easeInOutQuad'
-                    }
+                    animation: { duration: 800, easingFunction: 'easeInOutQuad' }
                 });
 
-                // Re-apply search highlighting if there's an active search term
                 if (this.searchTerm) {
                     this.handleSearch();
                 }
@@ -196,36 +141,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!this.network) return;
                 let options = {};
                 switch (this.selectedLayout) {
+                    case 'hierarchicalLR': // Left-to-Right
+                        options = {
+                            layout: { hierarchical: { enabled: true, direction: 'LR', sortMethod: 'directed' } },
+                            physics: { enabled: true, solver: 'hierarchicalRepulsion' }
+                        };
+                        break;
                     case 'hierarchicalUD': // Top-to-Bottom
                         options = {
-                            layout: {
-                                hierarchical: { enabled: true, direction: 'UD', sortMethod: 'directed' }
-                            },
-                            physics: { solver: 'hierarchicalRepulsion' }
+                            layout: { hierarchical: { enabled: true, direction: 'UD', sortMethod: 'directed' } },
+                            physics: { enabled: true, solver: 'hierarchicalRepulsion' }
                         };
                         break;
-                    case 'force': // Force-directed
-                        options = {
-                            layout: {
-                                hierarchical: { enabled: false }
-                            },
-                            physics: {
-                                solver: 'barnesHut',
-                                barnesHut: {
-                                    gravitationalConstant: -8000,
-                                    springConstant: 0.04,
-                                    springLength: 95
-                                }
-                            }
-                        };
-                        break;
-                    case 'hierarchicalLR': // Left-to-Right (default)
+                    case 'clusteredForce':
                     default:
                         options = {
-                            layout: {
-                                hierarchical: { enabled: true, direction: 'LR', sortMethod: 'directed' }
-                            },
-                            physics: { solver: 'hierarchicalRepulsion' }
+                            layout: { hierarchical: { enabled: false } },
+                            physics: {
+                                enabled: true,
+                                solver: 'barnesHut',
+                                barnesHut: {
+                                    gravitationalConstant: -10000,
+                                    centralGravity: 0.1,
+                                    springLength: 200,
+                                    springConstant: 0.05,
+                                    damping: 0.3
+                                }
+                            }
                         };
                         break;
                 }
@@ -237,73 +179,47 @@ document.addEventListener('DOMContentLoaded', () => {
              */
             handleSearch() {
                 const term = this.searchTerm.toLowerCase().trim();
-
-                // Get the IDs of nodes currently in the view
                 const current_node_ids = new Set(this.nodes.getIds());
 
-                // If the search term is empty, reset all visible nodes
                 if (term === '') {
                     const nodesToReset = this.allNodes
                         .filter(node => current_node_ids.has(node.id))
-                        .map(node => ({
-                            id: node.id,
-                            color: undefined, // Reset to default group color
-                            font: { color: '#1e293b' }
-                        }));
+                        .map(node => ({ id: node.id, color: undefined, font: { color: '#1e293b' } }));
                     if(nodesToReset.length > 0) this.nodes.update(nodesToReset);
                     return;
                 }
 
-                // Create a list of nodes to update based on the search
                 const nodesToUpdate = this.allNodes
                     .filter(node => current_node_ids.has(node.id))
                     .map(node => {
                         const label = node.label.toLowerCase();
                         const title = node.title ? node.title.toLowerCase() : '';
                         const isMatch = label.includes(term) || title.includes(term);
-
-                        // Dim non-matching nodes, highlight matching ones
                         return {
                             id: node.id,
-                            color: isMatch ? {
-                                border: '#2563eb', // blue-600
-                                background: '#eff6ff', // blue-50
-                            } : {
-                                border: '#e2e8f0', // gray-200
-                                background: '#f8fafc', // slate-50
-                            },
-                            font: {
-                                color: isMatch ? '#1e3a8a' : '#94a3b8' // blue-900 or slate-400
-                            }
+                            color: isMatch ? { border: '#2563eb', background: '#eff6ff' } : { border: '#e2e8f0', background: '#f8fafc' },
+                            font: { color: isMatch ? '#1e3a8a' : '#94a3b8' }
                         };
                 });
-
                 if(nodesToUpdate.length > 0) this.nodes.update(nodesToUpdate);
             }
         },
         // Watchers observe changes in data properties and react to them
         watch: {
-            // When the selected state changes, update the graph
             selectedState(newState, oldState) {
-                if (newState !== oldState) {
-                    this.updateGraphData();
-                }
+                if (newState !== oldState) this.updateGraphData();
             },
-            // When the search term changes, perform the search
             searchTerm() {
                 this.handleSearch();
             },
-            // When the layout selection changes, update the network options
             selectedLayout() {
                 this.updateLayout();
             }
         },
-        // Lifecycle hook that runs after the component is mounted to the DOM
         mounted() {
             this.initializeGraph();
         },
     };
 
-    // Create and mount the Vue application
     Vue.createApp(App).mount('#app');
 });

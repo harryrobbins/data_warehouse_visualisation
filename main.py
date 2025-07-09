@@ -2,6 +2,7 @@
 
 import json
 import jinja2
+import math
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -23,6 +24,8 @@ class Node(BaseModel):
     group: str
     title: str | None = None  # Used for hover tooltips
     color: Dict[str, str] | None = None
+    x: int | None = None  # For pre-defined layout positioning
+    y: int | None = None  # For pre-defined layout positioning
 
 
 class Edge(BaseModel):
@@ -51,7 +54,7 @@ app = FastAPI(
 static_path = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 
-# Setup Jinja2 templates with custom delimiters to avoid Vue.js conflicts
+# Setup Jinja2 templates with custom delimiters
 templates_path = Path(__file__).parent / "templates"
 jinja_env = jinja2.Environment(
     loader=jinja2.FileSystemLoader(templates_path),
@@ -62,73 +65,66 @@ templates = Jinja2Templates(env=jinja_env)
 
 # --- Data Processing and Graph Generation Logic ---
 
-# Define constants for node groups and styling
 NODE_GROUPS = {
-    "feed": {"color": {"background": "#e0f2fe", "border": "#38bdf8"}},  # sky-100, sky-400
-    "warehouse": {"color": {"background": "#ffedd5", "border": "#fb923c"}},  # orange-100, orange-400
-    "datalake": {"color": {"background": "#dcfce7", "border": "#4ade80"}},  # green-100, green-400
-    "virtualisation": {"color": {"background": "#ede9fe", "border": "#a78bfa"}},  # violet-100, violet-400
-    "logical_dw": {"color": {"background": "#fee2e2", "border": "#f87171"}},  # red-100, red-400
+    "feed": {"color": {"background": "#e0f2fe", "border": "#38bdf8"}},
+    "warehouse": {"color": {"background": "#ffedd5", "border": "#fb923c"}},
+    "datalake": {"color": {"background": "#dcfce7", "border": "#4ade80"}},
+    "virtualisation": {"color": {"background": "#ede9fe", "border": "#a78bfa"}},
+    "logical_dw": {"color": {"background": "#fee2e2", "border": "#f87171"}},
+}
+
+# Constants for clustered layout
+X_SPACING = 250
+Y_SPACING = 120
+CLUSTER_X_POS = {
+    0: 0,  # Feeds
+    1: 800,  # Warehouses / Datalake
+    2: 1600,  # Virtualisation
+    3: 2400  # Logical DWs
 }
 
 
-def get_graph_data() -> Dict[str, GraphData]:
-    """
-    Reads the legacy data CSV and generates graph data for all three states.
+def assign_grid_positions(nodes: List[Node], level: int):
+    """Calculates and assigns grid positions to a list of nodes for a given level."""
+    if not nodes:
+        return
 
-    Returns:
-        A dictionary containing the graph data for 'past', 'current', and 'future' states.
-    """
+    start_x = CLUSTER_X_POS[level]
+    num_nodes = len(nodes)
+    cols = int(math.ceil(math.sqrt(num_nodes)))
+    if cols == 0: return
+
+    for i, node in enumerate(nodes):
+        row = i // cols
+        col = i % cols
+        node.x = start_x + (col * X_SPACING)
+        node.y = (row * Y_SPACING)
+
+
+def get_graph_data() -> Dict[str, GraphData]:
+    """Reads data and generates graph data for all three states."""
     data_path = Path(__file__).parent / "data" / "legacy_data.csv"
     if not data_path.exists():
         raise FileNotFoundError(f"Data file not found at {data_path}")
 
     df = pd.read_csv(data_path)
-
-    # --- Base Nodes and Edges from CSV ---
-    base_nodes = []
-    base_edges = []
-
-    feed_cols = [col for col in df.columns if col.startswith('Feed')]
     dw_cols = [col for col in df.columns if col.startswith('Data Warehouse')]
 
-    # Add Feed nodes
-    for _, row in df.iterrows():
-        feed_id = row['Feed ID']
-        feed_title = row['Feed Full Title']
-        base_nodes.append(Node(
-            id=feed_id,
-            label=feed_id,
-            level=0,
-            group="feed",
-            title=f"Feed: {feed_title}",
-            color=NODE_GROUPS["feed"]["color"]
-        ))
-
-    # Add Data Warehouse nodes and edges from feeds
-    for dw_name in dw_cols:
-        dw_id = dw_name.replace(" ", "_")
-        base_nodes.append(Node(
-            id=dw_id,
-            label=dw_name,
-            level=1,
-            group="warehouse",
-            title=f"Legacy Warehouse: {dw_name}",
-            color=NODE_GROUPS["warehouse"]["color"]
-        ))
-
-        # Create edges
-        for _, row in df.iterrows():
-            if pd.notna(row[dw_name]) and row[dw_name] == 'Y':
-                # Instantiate using field names 'source' and 'target'
-                base_edges.append(Edge(source=row['Feed ID'], target=dw_id))
-
-    # --- Define Additional Nodes for Current and Future States ---
+    # --- Create Master lists of nodes ---
+    feed_nodes = [
+        Node(id=row['Feed ID'], label=row['Feed ID'], level=0, group="feed", title=f"Feed: {row['Feed Full Title']}",
+             color=NODE_GROUPS["feed"]["color"])
+        for _, row in df.iterrows()
+    ]
+    warehouse_nodes = [
+        Node(id=dw_name.replace(" ", "_"), label=dw_name, level=1, group="warehouse",
+             title=f"Legacy Warehouse: {dw_name}", color=NODE_GROUPS["warehouse"]["color"])
+        for dw_name in dw_cols
+    ]
     data_lake_node = Node(id="dl", label="Data Lake", level=1, group="datalake", title="Central Data Lake",
                           color=NODE_GROUPS["datalake"]["color"])
     dv_node = Node(id="dv", label="Data Virtualisation", level=2, group="virtualisation",
                    title="Data Virtualisation Layer", color=NODE_GROUPS["virtualisation"]["color"])
-
     logical_dws = [
         Node(id="ldw1", label="LDW: Sales", level=3, group="logical_dw", title="Logical DW for Sales",
              color=NODE_GROUPS["logical_dw"]["color"]),
@@ -139,90 +135,62 @@ def get_graph_data() -> Dict[str, GraphData]:
     ]
 
     # --- Build State 1: Past ---
-    past_graph = GraphData(nodes=base_nodes, edges=base_edges)
+    past_nodes = feed_nodes + warehouse_nodes
+    assign_grid_positions([n for n in past_nodes if n.level == 0], 0)
+    assign_grid_positions([n for n in past_nodes if n.level == 1], 1)
+
+    past_edges = [
+        Edge(source=row['Feed ID'], target=dw_name.replace(" ", "_"))
+        for dw_name in dw_cols
+        for _, row in df.iterrows()
+        if pd.notna(row[dw_name]) and row[dw_name] == 'Y'
+    ]
+    past_graph = GraphData(nodes=past_nodes, edges=past_edges)
 
     # --- Build State 2: Current ---
-    current_nodes = base_nodes.copy()
-    current_edges = base_edges.copy()
+    current_nodes = feed_nodes + warehouse_nodes + [dv_node] + logical_dws
+    assign_grid_positions([n for n in current_nodes if n.level == 0], 0)
+    assign_grid_positions([n for n in current_nodes if n.level == 1], 1)
+    assign_grid_positions([n for n in current_nodes if n.level == 2], 2)
+    assign_grid_positions([n for n in current_nodes if n.level == 3], 3)
 
-    # Add DV and Logical DWs
-    current_nodes.append(dv_node)
-    current_nodes.extend(logical_dws)
-
-    # Connect some warehouses to DV
+    current_edges = past_edges.copy()
     warehouses_to_virtualise = ["Data_Warehouse_1", "Data_Warehouse_2", "Data_Warehouse_7", "Data_Warehouse_15"]
-    for wh_id in warehouses_to_virtualise:
-        current_edges.append(Edge(source=wh_id, target="dv"))
-
-    # Connect DV to all logical DWs
-    for ldw in logical_dws:
-        current_edges.append(Edge(source="dv", target=ldw.id))
-
+    current_edges.extend([Edge(source=wh_id, target="dv") for wh_id in warehouses_to_virtualise])
+    current_edges.extend([Edge(source="dv", target=ldw.id) for ldw in logical_dws])
     current_graph = GraphData(nodes=current_nodes, edges=current_edges)
 
     # --- Build State 3: Future ---
-    future_nodes = []
-    future_edges = []
+    future_nodes = feed_nodes + [data_lake_node, dv_node] + logical_dws
+    assign_grid_positions([n for n in future_nodes if n.level == 0], 0)
+    assign_grid_positions([n for n in future_nodes if n.level == 1], 1)
+    assign_grid_positions([n for n in future_nodes if n.level == 2], 2)
+    assign_grid_positions([n for n in future_nodes if n.level == 3], 3)
 
-    # Add only Feed nodes from the base set
-    future_nodes.extend([n for n in base_nodes if n.group == 'feed'])
-
-    # Add Data Lake, DV, and Logical DWs
-    future_nodes.append(data_lake_node)
-    future_nodes.append(dv_node)
-    future_nodes.extend(logical_dws)
-
-    # Connect all feeds to Data Lake
-    for feed_node in future_nodes:
-        if feed_node.group == 'feed':
-            future_edges.append(Edge(source=feed_node.id, target="dl"))
-
-    # Connect Data Lake to DV
+    future_edges = [Edge(source=feed.id, target="dl") for feed in feed_nodes]
     future_edges.append(Edge(source="dl", target="dv"))
-
-    # Connect DV to all logical DWs
-    for ldw in logical_dws:
-        future_edges.append(Edge(source="dv", target=ldw.id))
-
+    future_edges.extend([Edge(source="dv", target=ldw.id) for ldw in logical_dws])
     future_graph = GraphData(nodes=future_nodes, edges=future_edges)
 
-    return {
-        "past": past_graph,
-        "current": current_graph,
-        "future": future_graph,
-    }
+    return {"past": past_graph, "current": current_graph, "future": future_graph}
 
 
 # --- API Endpoint ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    """
-    Main endpoint that renders the HTML page with the graph data.
-    """
+    """Main endpoint that renders the HTML page with the graph data."""
     try:
         all_graphs = get_graph_data()
-
-        # Convert Pydantic models to JSON-serializable dicts using model_dump (Pydantic V2)
-        graph_data_dict = {
-            "past": all_graphs["past"].model_dump(by_alias=True),
-            "current": all_graphs["current"].model_dump(by_alias=True),
-            "future": all_graphs["future"].model_dump(by_alias=True),
-        }
-
-        # Serialize to a JSON string for injection into the template
+        graph_data_dict = {k: v.model_dump(by_alias=True) for k, v in all_graphs.items()}
         graph_data_json = json.dumps(graph_data_dict)
-
         return templates.TemplateResponse(
             "index.html",
             {"request": request, "graph_data": graph_data_json}
         )
-    except FileNotFoundError as e:
-        return HTMLResponse(content=f"<h1>Error</h1><p>{e}</p>", status_code=500)
     except Exception as e:
-        # Log the error for debugging
         print(f"An unexpected error occurred: {e}")
-        return HTMLResponse(content=f"<h1>An unexpected error occurred</h1>", status_code=500)
+        return HTMLResponse(content="<h1>An unexpected error occurred</h1>", status_code=500)
 
 # --- To run the application:
 # 1. Install necessary packages: pip install "fastapi[all]" "pandas>=2.0" "pydantic>=2.0" jinja2
