@@ -16,7 +16,7 @@
     position: absolute;
     visibility: hidden;
     padding: 8px 12px;
-    font-family: 'Inter', sans-serif;
+    font-family: sans-serif;
     font-size: 14px;
     color: #ffffff;
     background-color: rgba(30, 41, 59, 0.9); /* slate-800 with opacity */
@@ -30,7 +30,7 @@
 
 /* General node styling - can be overridden by specific node properties */
 .vis-network .vis-node {
-    font-family: 'Inter', sans-serif;
+    font-family:  sans-serif;
 }
 
 /* Styling for the loading message */

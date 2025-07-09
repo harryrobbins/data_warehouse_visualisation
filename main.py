@@ -50,7 +50,7 @@ class GraphData(BaseModel):
 app = FastAPI(
     title="Data Lineage Visualizer API",
     description="Serves data for the data lineage visualization tool.",
-    
+
 )
 
 # Mount static files directory

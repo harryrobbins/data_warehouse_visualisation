@@ -5,19 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Data Lineage Visualizer</title>
 
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind CSS (Local) -->
+    <script src="[[ url_for('static', path='js/libs/tailwindcss.js') ]]"></script>
 
     <!-- Vis.js Network Library -->
     <script type="text/javascript" src="[[ url_for('static', path='js/libs/vis-network.min.js') ]]"></script>
 
+
     <!-- Custom Styles for the Graph -->
     <link rel="stylesheet" href="[[ url_for('static', path='css/style.css') ]]">
-
-    <!-- Google Fonts: Inter -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <script>
         // Customizing Tailwind theme
