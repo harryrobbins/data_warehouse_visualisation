@@ -1,0 +1,11 @@
+Feed Name,Warehouse Alpha,Warehouse Beta,Warehouse Gamma,Warehouse Delta,Warehouse Epsilon,Warehouse Zeta,Warehouse Eta,Warehouse Theta,Warehouse Iota,Warehouse Kappa,Warehouse Lambda,Warehouse Mu,Warehouse Nu,Warehouse Xi,Feed Full Name
+F-001,Y,Y,,,,,,,,,,,,,Full Name for Feed F-001
+F-002,,Y,Y,Y,,,,,,,,,,,Full Name for Feed F-002
+F-003,Y,,,,Y,,,,,,,,,,Full Name for Feed F-003
+F-004,,,,,,Y,Y,Y,,,,,,,Full Name for Feed F-004
+F-005,,,,,,,,Y,Y,,,,,,Full Name for Feed F-005
+F-006,Y,,,,,,,,,,Y,Y,Y,,Full Name for Feed F-006
+F-007,,Y,,,,,,,,,,,Y,Y,Full Name for Feed F-007
+F-008,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Full Name for Feed F-008
+F-009,,,,,Y,,,,,,,,,,Full Name for Feed F-009
+F-010,,,,,,,,,,Y,Y,Y,Y,,Full Name for Feed F-010
