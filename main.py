@@ -117,13 +117,31 @@ def get_graph_data() -> Dict[str, GraphData]:
         node_counter += 1
 
     warehouse_nodes = []
-    for dw_name in dw_cols:
+    # Arrange warehouses in a circle to give the physics engine a better start and reduce initial overlap.
+    num_warehouses = len(dw_cols)
+    radius = num_warehouses * 50  # Make radius dependent on number of nodes to spread them out
+    for i, dw_name in enumerate(dw_cols):
         stable_wh_key = dw_name.replace(" ", "_")
         new_id = f"{node_counter}-{stable_wh_key}"
         id_map[stable_wh_key] = new_id
+
+        # Calculate circular position
+        angle = (2 * math.pi / num_warehouses) * i if num_warehouses > 0 else 0
+        x_pos = int(radius * math.cos(angle))
+        y_pos = int(radius * math.sin(angle))
+
         warehouse_nodes.append(
-            Node(id=new_id, label=dw_name, level=1, group="warehouse",
-                 title=f"Legacy Warehouse: {dw_name}", color=NODE_GROUPS["warehouse"]["color"])
+            Node(
+                id=new_id,
+                label=dw_name,
+                level=1,
+                group="warehouse",
+                title=f"Legacy Warehouse: {dw_name}",
+                color=NODE_GROUPS["warehouse"]["color"],
+                x=x_pos,
+                y=y_pos,
+                fixed=False  # Let physics engine move them from this starting position
+            )
         )
         node_counter += 1
 

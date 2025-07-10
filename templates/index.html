@@ -1,3 +1,4 @@
+<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="en" class="h-full bg-slate-100">
 <head>
@@ -5,11 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Data Lineage Visualizer</title>
 
-    <!-- Tailwind CSS (Local) -->
-    <script src="[[ url_for('static', path='js/libs/tailwindcss.js') ]]"></script>
+    <!-- Tailwind CSS (CDN for simplicity, replace with local if preferred) -->
+    <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- Vis.js Network Library -->
-    <script type="text/javascript" src="[[ url_for('static', path='js/libs/vis-network.min.js') ]]"></script>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 
 
     <!-- Custom Styles for the Graph -->
@@ -71,10 +72,26 @@
                 </div>
 
                 <!-- Physics Toggle -->
+                <!-- Physics Toggle -->
                 <div class="mb-6">
-                    <button @click="togglePhysics" class="w-full px-4 py-2 rounded-md transition-colors duration-200" :class="isPhysicsEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-amber-500 text-white hover:bg-amber-600'">
-                        {{ isPhysicsEnabled ? 'Disable Physics' : 'Enable Physics' }}
+                    <button @click="togglePhysics"
+                            :disabled="selectedLayout === 'hierarchicalUD'"
+                            class="w-full px-4 py-2 rounded-md transition-colors duration-200 text-white font-semibold"
+                            :class="{
+                                'bg-green-600 hover:bg-green-700': isPhysicsEnabled && selectedLayout !== 'hierarchicalUD',
+                                'bg-amber-500 hover:bg-amber-600': !isPhysicsEnabled && selectedLayout !== 'hierarchicalUD',
+                                'bg-slate-400 cursor-not-allowed': selectedLayout === 'hierarchicalUD'
+                            }">
+                        <span v-if="selectedLayout !== 'hierarchicalUD'">
+                            {{ isPhysicsEnabled ? 'Pause Physics' : 'Resume Physics' }}
+                        </span>
+                        <span v-else>
+                            Physics N/A
+                        </span>
                     </button>
+                    <p v-if="selectedLayout === 'hierarchicalLR'" class="text-xs text-slate-500 mt-1">
+                        Auto-pauses after stabilization
+                    </p>
                 </div>
 
                 <!-- Spacer -->
