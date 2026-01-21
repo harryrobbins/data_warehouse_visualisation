@@ -218,9 +218,14 @@ def get_graph_data() -> Dict[str, GraphData]:
         stable_feed_key = f"feed_{index}"
         new_id = f"{node_counter}-{feed_name}"
         id_map[stable_feed_key] = new_id
+
+        # Fallback logic for title: use full name if available, else use feed name
+        full_feed_name = str(row[feed_full_name_col]).strip()
+        display_title = full_feed_name if full_feed_name else feed_name
+
         feed_nodes.append(
             Node(id=new_id, label=feed_name, level=0, group="feed",
-                 title=f"Feed: {str(row[feed_full_name_col]).strip()}", color=NODE_GROUPS["feed"]["color"])
+                 title=f"Feed: {display_title}", color=NODE_GROUPS["feed"]["color"])
         )
         node_counter += 1
     
