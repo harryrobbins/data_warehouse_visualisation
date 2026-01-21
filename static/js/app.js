@@ -1,9 +1,83 @@
-// static/js/app.js - Optimized for large graphs (500+ nodes)
+/**
+ * @typedef {Object} GraphNode
+ * @property {string} id
+ * @property {string} label
+ * @property {string} group
+ * @property {number} level
+ * @property {string} [title]
+ * @property {Object} [color]
+ * @property {Object} [font]
+ * @property {number} [x]
+ * @property {number} [y]
+ * @property {boolean|Object} [fixed]
+ */
+
+/**
+ * @typedef {Object} Edge
+ * @property {string} id
+ * @property {string} from
+ * @property {string} to
+ * @property {number} [width]
+ * @property {boolean} [hidden]
+ * @property {Object} [color]
+ * @property {number} [opacity]
+ * @property {boolean} [smooth]
+ */
+
+/**
+ * @typedef {Object} GraphStateData
+ * @property {GraphNode[]} nodes
+ * @property {Edge[]} edges
+ */
+
+/**
+ * @typedef {Object.<string, GraphStateData>} FullGraphData
+ */
+
+/**
+ * @typedef {Object} AppState
+ * @property {FullGraphData} graphData
+ * @property {any} network
+ * @property {string} selectedState
+ * @property {string} selectedLayout
+ * @property {string} searchTerm
+ * @property {boolean} isPhysicsEnabled
+ * @property {any} stabilizationTimeout
+ * @property {boolean} isClustered
+ * @property {string} viewMode
+ * @property {boolean} showDebug
+ * @property {string[]} logs
+ * @property {any} logInterval
+ * @property {GraphNode[]} currentNodes
+ * @property {GraphNode[]} filteredNodes
+ * @property {number} nodeCount
+ * @property {number} edgeCount
+ * @property {function(): any} getLayoutOptions
+ * @property {function(GraphNode[]): GraphNode[]} optimizeNodeRendering
+ * @property {function(GraphNode[]): void} applyRoughPositioning
+ * @property {function(): void} drawGraph
+ * @property {function(GraphNode[]): void} applyManualLTRLayout
+ * @property {function(): void} togglePhysics
+ * @property {function(string[]): void} applyHighlight
+ * @property {function(): void} resetNodeStyles
+ * @property {function(string): void} searchNodes
+ * @property {function(): Promise<void>} fetchLogs
+ * @property {function(): void} refreshLogs
+ * @property {function(): void} toggleDebugPanel
+ * @property {Object.<string, string[]>} connectionMap
+ * @property {Object.<string, GraphNode>} nodeIdMap
+ * @property {function(): void} calculateConnectivity
+ * @property {function(string): {count: number, labels: string[]}} getNodeConnections
+ */
+
+// static/js/app.js - Optimized for large graphs (500+ nodes) with Type Checking via JSDoc
 
 const App = {
     data() {
         return {
+            /** @type {FullGraphData} */
             graphData: window.graphData,
+            /** @type {any} */
             network: null,
             selectedState: 'past',
             selectedLayout: 'clusteredForce',
@@ -11,31 +85,141 @@ const App = {
             isPhysicsEnabled: true,
             stabilizationTimeout: null,
             isClustered: false,
+            
+            // New Robustness Features
+            viewMode: 'graph', // 'graph' | 'table'
+            showDebug: false,
+            logs: [],
+            logInterval: null,
+            
+            // Connection Data Cache
+            /** @type {Object.<string, string[]>} */
+            connectionMap: {},
+            /** @type {Object.<string, GraphNode>} */
+            nodeIdMap: {}
         };
     },
     computed: {
+        /** @this {AppState} */
         nodeCount() {
-            return this.network ? this.network.body.data.nodes.length : 0;
+            if (this.viewMode === 'graph' && this.network) {
+                return this.network.body.data.nodes.length;
+            }
+            return this.currentNodes.length;
         },
+        /** @this {AppState} */
         edgeCount() {
-            return this.network ? this.network.body.data.edges.length : 0;
+            if (this.viewMode === 'graph' && this.network) {
+                return this.network.body.data.edges.length;
+            }
+            // Fallback for table mode or before network init
+            return this.graphData[this.selectedState]?.edges?.length || 0;
         },
+        /**
+         * Returns the list of nodes for the currently selected state.
+         * @this {AppState}
+         * @returns {GraphNode[]}
+         */
+        currentNodes() {
+            return this.graphData[this.selectedState]?.nodes || [];
+        },
+        /**
+         * Returns filtered nodes for the Table View.
+         * @this {AppState}
+         * @returns {GraphNode[]}
+         */
+        filteredNodes() {
+            const query = this.searchTerm.toLowerCase().trim();
+            if (!query) {
+                return this.currentNodes;
+            }
+            return this.currentNodes.filter(node => 
+                node.label.toLowerCase().includes(query) || 
+                node.id.toLowerCase().includes(query) ||
+                node.group.toLowerCase().includes(query)
+            );
+        }
     },
     watch: {
         selectedState() {
-            this.drawGraph();
+            /** @type {AppState} */
+            // @ts-ignore
+            const self = this;
+            self.calculateConnectivity();
+            if (self.viewMode === 'graph') {
+                self.drawGraph();
+            }
         },
         selectedLayout() {
-            this.drawGraph();
+            /** @type {AppState} */
+            // @ts-ignore
+            const self = this;
+            if (self.viewMode === 'graph') {
+                self.drawGraph();
+            }
         },
+        /**
+         * @param {string} newValue 
+         */
         searchTerm(newValue) {
-            this.searchNodes(newValue);
+            /** @type {AppState} */
+            // @ts-ignore
+            const self = this;
+            if (self.viewMode === 'graph') {
+                self.searchNodes(newValue);
+            }
+        },
+        /**
+         * @param {string} newMode 
+         */
+        viewMode(newMode) {
+            /** @type {AppState} */
+            // @ts-ignore
+            const self = this;
+
+            if (newMode === 'graph') {
+                // Give Vue a tick to render the container div before initializing Vis.js
+                // @ts-ignore
+                self.$nextTick(() => {
+                    self.drawGraph();
+                });
+            } else {
+                // Clean up network instance to save memory when switching to table
+                if (self.network) {
+                    self.network.destroy();
+                    self.network = null;
+                }
+            }
+        },
+        /**
+         * @param {boolean} newVal 
+         */
+        showDebug(newVal) {
+            /** @type {AppState} */
+            // @ts-ignore
+            const self = this;
+            if (newVal) {
+                self.fetchLogs();
+                self.logInterval = setInterval(self.fetchLogs, 5000);
+            } else {
+                if (self.logInterval) {
+                    clearInterval(self.logInterval);
+                    self.logInterval = null;
+                }
+            }
         }
     },
     mounted() {
-        this.drawGraph();
+        /** @type {AppState} */
+        // @ts-ignore
+        const self = this;
+        self.calculateConnectivity();
+        if (self.viewMode === 'graph') {
+            self.drawGraph();
+        }
     },
     methods: {
+        /** @this {AppState} */
         getLayoutOptions() {
             // Optimized physics settings for large graphs (500+ nodes)
             const basePhysics = {
@@ -81,23 +265,39 @@ const App = {
                 minVelocity: 0.5, // Lower threshold for more precise stopping
             };
 
+            const commonOptions = {
+                interaction: {
+                    hover: true, // ENABLED per robustness plan
+                    tooltipDelay: 200, // Slight delay to prevent flickering
+                    hideEdgesOnDrag: true,
+                    hideEdgesOnZoom: true,
+                    navigationButtons: true,
+                    keyboard: true
+                },
+                edges: {
+                    smooth: false // Disable smooth edges globally for performance
+                }
+            };
+
             switch (this.selectedLayout) {
                 case 'hierarchicalLR':
                     return {
+                        ...commonOptions,
                         layout: {
                             hierarchical: { enabled: false }
                         },
-                        physics: stablePhysics // Use stable physics for manual layouts
+                        physics: stablePhysics
                     };
                 case 'hierarchicalUD':
                     return {
+                        ...commonOptions,
                         layout: {
                             hierarchical: {
                                 enabled: true,
                                 direction: 'UD',
                                 sortMethod: 'directed',
-                                nodeSpacing: 150, // Reduced for performance
-                                treeSpacing: 200, // Reduced for performance
+                                nodeSpacing: 150,
+                                treeSpacing: 200,
                             }
                         },
                         physics: false
@@ -105,6 +305,7 @@ const App = {
                 case 'clusteredForce':
                 default:
                     return {
+                        ...commonOptions,
                         layout: {
                             hierarchical: {
                                 enabled: false
@@ -115,22 +316,28 @@ const App = {
             }
         },
 
+        /**
+         * Optimizes node visual properties for performance.
+         * @param {GraphNode[]} nodes 
+         * @returns {GraphNode[]}
+         */
         optimizeNodeRendering(nodes) {
-            // Optimize visual properties for performance
             return nodes.map(node => ({
                 ...node,
                 font: {
-                    size: Math.min(node.font?.size || 14, 12), // Smaller fonts
+                    size: Math.min(node.font?.size || 14, 12),
                     color: node.font?.color || '#343434'
                 },
-                borderWidth: 1, // Thinner borders
-                shadow: false, // Disable shadows for performance
-                smooth: false, // Disable smooth curves
+                borderWidth: 1,
+                shadow: false,
+                // Ensure labels are strings to prevent crashing
+                label: String(node.label || ''),
                 // Keep original colors but ensure they're optimized
                 color: node.color || { background: '#97C2FC', border: '#2B7CE9' }
             }));
         },
 
+        /** @this {AppState} */
         applyRoughPositioning(nodes) {
             // Pre-position nodes by group to reduce physics calculation time
             const groups = {};
@@ -162,28 +369,34 @@ const App = {
             });
         },
 
+        /** @this {AppState} */
         drawGraph() {
             // Clean up previous network instance and timers
             if (this.network) {
                 this.network.destroy();
+                this.network = null;
             }
             if (this.stabilizationTimeout) {
                 clearTimeout(this.stabilizationTimeout);
             }
 
             const container = document.getElementById('network-graph');
-            // Deep copy data for modifications
-            const data = JSON.parse(JSON.stringify(this.graphData[this.selectedState]));
+            if (!container) return; // Guard clause if viewMode switched rapidly
 
-            if (!data) {
+            // Deep copy data for modifications
+            const rawData = this.graphData[this.selectedState];
+            if (!rawData) {
                 console.error(`No data for state: ${this.selectedState}`);
                 return;
             }
+            const data = JSON.parse(JSON.stringify(rawData));
 
             // Optimize node rendering for performance
+            // @ts-ignore
             data.nodes = this.optimizeNodeRendering(data.nodes);
 
             // Optimize edge rendering
+            // @ts-ignore
             data.edges = data.edges.map(edge => ({
                 ...edge,
                 smooth: false, // Disable smooth edges for performance
@@ -197,26 +410,15 @@ const App = {
                 this.applyRoughPositioning(data.nodes);
             }
 
+            // @ts-ignore
             const options = this.getLayoutOptions();
-
-            // Add performance-focused rendering options
-            options.interaction = {
-                ...options.interaction,
-                hover: false, // Disable hover for performance
-                tooltipDelay: 300,
-                hideEdgesOnDrag: true, // Hide edges while dragging
-                hideEdgesOnZoom: true, // Hide edges while zooming
-            };
-
-            options.edges = {
-                ...options.edges,
-                smooth: false, // Disable smooth edges globally
-            };
 
             // Sync the physics button with the layout's default state
             this.isPhysicsEnabled = options.physics !== false;
 
-            this.network = new vis.Network(container, data, options);
+            // Use Vue.markRaw to prevent Vue from making the vis.Network instance reactive.
+            // This fixes the "TypeError: Private element is not present on this object" error.
+            this.network = Vue.markRaw(new vis.Network(container, data, options));
 
             // Optimized event listeners for large graphs
             this.network.once('stabilizationIterationsDone', () => {
@@ -226,7 +428,7 @@ const App = {
                         this.network.setOptions({ physics: false });
                         this.isPhysicsEnabled = false;
                     }
-                }, this.selectedLayout === 'hierarchicalLR' ? 2000 : 3000); // Faster for LTR
+                }, this.selectedLayout === 'hierarchicalLR' ? 2000 : 3000);
             });
 
             this.network.on("selectNode", (params) => {
@@ -236,6 +438,12 @@ const App = {
             this.network.on("deselectNode", () => {
                 this.resetNodeStyles();
             });
+
+            // Re-apply search highlight if needed after redraw
+            if (this.searchTerm) {
+                // @ts-ignore
+                this.searchNodes(this.searchTerm);
+            }
         },
 
         applyManualLTRLayout(nodes) {
@@ -248,8 +456,8 @@ const App = {
                 groups[node.group].push(node);
             });
 
-            const xSpacing = 200; // Slightly reduced for performance
-            const ySpacing = 100; // Slightly reduced for performance
+            const xSpacing = 200;
+            const ySpacing = 100;
             let currentX = 0;
             let levelWidths = [];
 
@@ -293,7 +501,7 @@ const App = {
             if (groups.virtualisation && groups.virtualisation.length > 0) {
                 groups.virtualisation.forEach((node, index) => {
                     node.x = currentX;
-                    node.y = index * ySpacing * 1.5; // Reduced spacing
+                    node.y = index * ySpacing * 1.5;
                     node.fixed = true;
                 });
                 levelWidths.push(xSpacing);
@@ -311,6 +519,7 @@ const App = {
             }
         },
 
+        /** @this {AppState} */
         togglePhysics() {
             if (!this.network) return;
 
@@ -323,7 +532,7 @@ const App = {
                 this.stabilizationTimeout = null;
             }
 
-            // For LTR layout, auto-disable physics after a short time to prevent jiggling
+            // For LTR layout, auto-disable physics after a short time
             if (this.isPhysicsEnabled && this.selectedLayout === 'hierarchicalLR') {
                 this.stabilizationTimeout = setTimeout(() => {
                     if (this.network && this.isPhysicsEnabled) {
@@ -334,48 +543,7 @@ const App = {
             }
         },
 
-        enableClustering() {
-            // Optional clustering for very large graphs
-            if (!this.network || this.isClustered) return;
-
-            const clusterOptionsByData = {
-                processProperties: function(clusterOptions, childNodes) {
-                    let totalMass = 0;
-                    let x = 0, y = 0;
-                    for (let i = 0; i < childNodes.length; i++) {
-                        totalMass += childNodes[i].mass || 1;
-                        x += childNodes[i].x || 0;
-                        y += childNodes[i].y || 0;
-                    }
-                    clusterOptions.mass = totalMass;
-                    clusterOptions.x = x / childNodes.length;
-                    clusterOptions.y = y / childNodes.length;
-                    clusterOptions.label = `Cluster (${childNodes.length})`;
-                    return clusterOptions;
-                }
-            };
-
-            // Cluster by node type for initial layout
-            ['feed', 'warehouse', 'datalake'].forEach(group => {
-                if (this.graphData[this.selectedState].nodes.some(n => n.group === group)) {
-                    this.network.cluster({
-                        joinCondition: function(nodeOptions) {
-                            return nodeOptions.group === group;
-                        },
-                        clusterNodeProperties: clusterOptionsByData
-                    });
-                }
-            });
-
-            this.isClustered = true;
-        },
-
-        disableClustering() {
-            if (!this.network || !this.isClustered) return;
-            this.network.openCluster();
-            this.isClustered = false;
-        },
-
+        /** @this {AppState} */
         applyHighlight(selectedIds) {
             if (!this.network || !this.graphData[this.selectedState]) return;
 
@@ -396,7 +564,6 @@ const App = {
                 this.network.getConnectedNodes(nodeId).forEach(connectedId => nodesToHighlight.add(connectedId));
             });
 
-            // Batch update for better performance
             allNodes.forEach(node => {
                 const originalNode = originalNodes.find(n => n.id === node.id);
                 if (!originalNode) return;
@@ -405,12 +572,16 @@ const App = {
                     nodesToUpdate.push({
                         id: node.id,
                         color: originalNode.color,
+                        opacity: 1,
+                        // @ts-ignore
                         font: { color: '#343434' }
                     });
                 } else {
                     nodesToUpdate.push({
                         id: node.id,
                         color: { background: '#f0f0f0', border: '#d3d3d3' },
+                        opacity: 0.2, // Dim the node significantly
+                        // @ts-ignore
                         font: { color: '#d3d3d3' }
                     });
                 }
@@ -421,39 +592,36 @@ const App = {
                     edgesToUpdate.push({
                         id: edge.id,
                         color: { color: '#2B7CE9', highlight: '#2B7CE9' },
-                        opacity: 1.0
+                        opacity: 1.0,
+                        hidden: false
                     });
                 } else {
                     edgesToUpdate.push({
                         id: edge.id,
                         color: { color: '#e0e0e0', highlight: '#e0e0e0' },
-                        opacity: 0.2
+                        opacity: 0.1,
+                        hidden: true // Hide irrelevant edges for clarity
                     });
                 }
             });
 
-            // Batch updates for better performance
             this.network.body.data.nodes.update(nodesToUpdate);
             this.network.body.data.edges.update(edgesToUpdate);
         },
 
+        /** @this {AppState} */
         resetNodeStyles() {
             if (!this.network || !this.graphData[this.selectedState]) return;
-
-            // More efficient reset - just restore original data
-            const data = JSON.parse(JSON.stringify(this.graphData[this.selectedState]));
-            data.nodes = this.optimizeNodeRendering(data.nodes);
-
-            if (this.selectedLayout === 'hierarchicalLR') {
-                this.applyManualLTRLayout(data.nodes);
-            } else if (this.selectedLayout === 'clusteredForce') {
-                this.applyRoughPositioning(data.nodes);
-            }
-
-            this.network.setData(data);
+            
+            // Re-render completely to ensure clean state
+            // It's often faster and cleaner than updating individual properties for all nodes
+            this.drawGraph(); 
         },
 
+        /** @this {AppState} */
         searchNodes(query) {
+            if(!this.network) return;
+
             const lowerCaseQuery = query.toLowerCase().trim();
             if (lowerCaseQuery === '') {
                 this.resetNodeStyles();
@@ -462,18 +630,18 @@ const App = {
             }
 
             const allNodes = this.graphData[this.selectedState].nodes;
-            const nodesToSelect = allNodes
-                .filter(node =>
-                    node.label.toLowerCase().includes(lowerCaseQuery) ||
-                    node.id.toLowerCase().includes(lowerCaseQuery)
-                )
-                .map(node => node.id);
+            const matchedNodes = allNodes.filter(node =>
+                String(node.label).toLowerCase().includes(lowerCaseQuery) ||
+                String(node.id).toLowerCase().includes(lowerCaseQuery)
+            );
+            
+            const nodesToSelect = matchedNodes.map(node => node.id);
 
             if (nodesToSelect.length > 0) {
                 this.network.selectNodes(nodesToSelect);
                 this.applyHighlight(nodesToSelect);
 
-                // Focus on first found node for better UX
+                // Focus on the first matched node to orient the user
                 this.network.focus(nodesToSelect[0], {
                     scale: 1.0,
                     animation: {
@@ -481,8 +649,83 @@ const App = {
                         easingFunction: 'easeInOutQuad'
                     }
                 });
+            } else {
+                // If no match, maybe reset or show feedback?
+                // For now, let's reset so they know nothing matched in this view
+                this.network.unselectAll();
+                this.resetNodeStyles();
             }
         },
+
+        /** @this {AppState} */
+        async fetchLogs() {
+            try {
+                const response = await fetch('/logs');
+                if (response.ok) {
+                    const data = await response.json();
+                    this.logs = data.logs;
+                }
+            } catch (error) {
+                console.error("Failed to fetch logs:", error);
+            }
+        },
+        
+        /** @this {AppState} */
+        refreshLogs() {
+            this.fetchLogs();
+        },
+        
+        /** @this {AppState} */
+        toggleDebugPanel() {
+            this.showDebug = !this.showDebug;
+        },
+
+        /** @this {AppState} */
+        calculateConnectivity() {
+            // Reset maps
+            this.connectionMap = {};
+            this.nodeIdMap = {};
+
+            const nodes = this.currentNodes;
+            const edges = this.graphData[this.selectedState]?.edges || [];
+
+            // Populate Node ID Map for Label Lookup
+            nodes.forEach(node => {
+                this.nodeIdMap[node.id] = node;
+                this.connectionMap[node.id] = [];
+            });
+
+            // Populate Connection Map (Adjacency List)
+            edges.forEach(edge => {
+                if (this.connectionMap[edge.from] && this.connectionMap[edge.to]) {
+                    // Store IDs initially
+                    // Avoid duplicates if edges are defined multiple times (though graph data shouldn't have them)
+                    if (!this.connectionMap[edge.from].includes(edge.to)) {
+                        this.connectionMap[edge.from].push(edge.to);
+                    }
+                    if (!this.connectionMap[edge.to].includes(edge.from)) {
+                        this.connectionMap[edge.to].push(edge.from);
+                    }
+                }
+            });
+        },
+
+        /** 
+         * @this {AppState} 
+         * @param {string} nodeId
+         * @returns {{count: number, labels: string[]}}
+         */
+        getNodeConnections(nodeId) {
+            const connectedIds = this.connectionMap[nodeId] || [];
+            const labels = connectedIds
+                .map(id => this.nodeIdMap[id]?.label || 'Unknown')
+                .sort();
+            
+            return {
+                count: connectedIds.length,
+                labels: labels
+            };
+        }
     }
 };
 

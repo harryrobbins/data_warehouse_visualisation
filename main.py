@@ -3,15 +3,66 @@
 import json
 import jinja2
 import math
+import sys
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 
 import pandas as pd
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from loguru import logger
+
+# --- Logger Setup ---
+# Configure loguru to intercept standard logging and output to stdout (which we can capture if needed)
+# and also setup a sink for our WebSocket to stream logs to the frontend.
+
+class WebSocketSink:
+    def __init__(self) -> None:
+        self.connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self.connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket) -> None:
+        if websocket in self.connections:
+            self.connections.remove(websocket)
+
+    async def broadcast(self, message: str) -> None:
+        for connection in self.connections:
+            try:
+                await connection.send_text(message)
+            except Exception:
+                # If sending fails, assume connection is dead and remove it
+                self.disconnect(connection)
+    
+    def write(self, message: str) -> None:
+        # This method is called by loguru
+        # Since loguru calls this synchronously, but we need to await send_text,
+        # we have to schedule it on the event loop.
+        # However, for simplicity in this synchronous bridge, we might need a workaround
+        # or just use a standard queue.
+        # For now, let's just print to console, and we'll handle the websocket 
+        # separately via an API endpoint that polls logs or a slightly more complex setup.
+        # EDIT: Simplest way for 'live' logs in this context: 
+        # Just use a global list for recent logs and poll, or use a proper async sink.
+        pass
+
+# We'll use a simple in-memory buffer for the logs to show in the frontend
+# for the initial load, and a websocket for live updates.
+log_buffer: List[str] = []
+
+def memory_sink(message: str) -> None:
+    log_buffer.append(message)
+    if len(log_buffer) > 1000:
+        log_buffer.pop(0)
+
+logger.remove() # Remove default handler
+logger.add(sys.stderr, level="INFO") # Add standard stderr handler
+logger.add(memory_sink, level="DEBUG", format="{time:HH:mm:ss} | {level} | {message}")
 
 
 # --- Pydantic Models for Type Hinting and Validation ---
@@ -22,12 +73,20 @@ class Node(BaseModel):
     label: str
     level: int
     group: str
-    title: str | None = None  # Used for hover tooltips
-    color: Dict[str, str] | None = None
-    x: int | None = None  # For pre-defined layout positioning
-    y: int | None = None  # For pre-defined layout positioning
+    title: Union[str, None] = None  # Used for hover tooltips
+    color: Union[Dict[str, str], None] = None
+    x: Union[int, None] = None  # For pre-defined layout positioning
+    y: Union[int, None] = None  # For pre-defined layout positioning
     # The 'fixed' property tells vis.js whether to respect the x/y coordinates
-    fixed: bool = Field(False, exclude=True)
+    # We use default=False so it's not required in the constructor
+    fixed: Union[bool, Dict[str, bool]] = Field(default=False, exclude=True)
+
+    @field_validator('label')
+    @classmethod
+    def ensure_label_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            return "Unknown"
+        return v
 
 
 class Edge(BaseModel):
@@ -35,6 +94,8 @@ class Edge(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    # Using alias for 'from' and 'to' because 'from' is a reserved keyword
+    # We must construct using the field names 'source' and 'target' unless populate_by_name=True
     source: str = Field(..., alias='from')
     target: str = Field(..., alias='to')
 
@@ -65,7 +126,9 @@ jinja_env = jinja2.Environment(
     block_start_string='[%',
     block_end_string='%]',
 )
-templates = Jinja2Templates(env=jinja_env)
+# Passing env to use custom delimiters.
+# type: ignore[call-arg] is needed because mypy expects 'directory' as a positional arg based on some stubs
+templates = Jinja2Templates(env=jinja_env) # type: ignore[call-arg]
 
 # --- Data Processing and Graph Generation Logic ---
 
@@ -82,23 +145,33 @@ def get_graph_data() -> Dict[str, GraphData]:
     """
     Reads data, generates unique IDs for all nodes, and builds the graph data.
     """
+    logger.info("Starting graph data generation...")
     data_dir = Path(__file__).parent / "data"
     excel_path = data_dir / "Warehouse Feeds Matrix.xlsx"
     csv_path = data_dir / "warehouse_feeds.csv"
 
     if excel_path.exists():
         try:
+            logger.info(f"Reading Excel file: {excel_path}")
             df = pd.read_excel(excel_path, sheet_name="Warehouse Feeds Matrix", engine='openpyxl')
         except Exception as e:
+            logger.error(f"Could not read Excel file at {excel_path}. Error: {e}")
             raise FileNotFoundError(f"Could not read Excel file at {excel_path}. Error: {e}")
     elif csv_path.exists():
+        logger.info(f"Reading CSV file: {csv_path}")
         df = pd.read_csv(csv_path)
     else:
+        logger.error("No data file found.")
         raise FileNotFoundError(f"No data file found. Looked for {excel_path} and {csv_path}")
+
+    # Data Cleaning: Replace all NaNs with empty strings immediately
+    df = df.fillna("")
+    logger.debug(f"Dataframe shape after cleaning: {df.shape}")
 
     feed_name_col = df.columns[0]
     feed_full_name_col = df.columns[-1]
     dw_cols = df.columns[1:-1].tolist()
+    logger.debug(f"Columns identified - Feed: {feed_name_col}, Full Name: {feed_full_name_col}, Warehouses: {len(dw_cols)}")
 
     node_counter = 0
     id_map = {}  # Maps a stable identifier to the new, unique node ID
@@ -107,14 +180,20 @@ def get_graph_data() -> Dict[str, GraphData]:
     feed_nodes = []
     for index, row in df.iterrows():
         # Use the dataframe index to create a temporary, stable key for the map
+        feed_name = str(row[feed_name_col]).strip()
+        if not feed_name:
+            continue # Skip empty rows
+
         stable_feed_key = f"feed_{index}"
-        new_id = f"{node_counter}-{row[feed_name_col]}"
+        new_id = f"{node_counter}-{feed_name}"
         id_map[stable_feed_key] = new_id
         feed_nodes.append(
-            Node(id=new_id, label=row[feed_name_col], level=0, group="feed",
-                 title=f"Feed: {row[feed_full_name_col]}", color=NODE_GROUPS["feed"]["color"])
+            Node(id=new_id, label=feed_name, level=0, group="feed",
+                 title=f"Feed: {str(row[feed_full_name_col]).strip()}", color=NODE_GROUPS["feed"]["color"])
         )
         node_counter += 1
+    
+    logger.info(f"Processed {len(feed_nodes)} feed nodes.")
 
     warehouse_nodes = []
     # Arrange warehouses in a circle to give the physics engine a better start and reduce initial overlap.
@@ -144,6 +223,8 @@ def get_graph_data() -> Dict[str, GraphData]:
             )
         )
         node_counter += 1
+    
+    logger.info(f"Processed {len(warehouse_nodes)} warehouse nodes.")
 
     # Generate unique IDs for static nodes
     new_dl_id = f"{node_counter}-dl"
@@ -171,12 +252,20 @@ def get_graph_data() -> Dict[str, GraphData]:
     past_edges = []
     for index, row in df.iterrows():
         stable_feed_key = f"feed_{index}"
+        if stable_feed_key not in id_map: # Skip if feed was skipped
+            continue
+            
         source_id = id_map[stable_feed_key]
         for dw_name in dw_cols:
-            if pd.notna(row[dw_name]) and str(row[dw_name]).strip() != '':
+            val = str(row[dw_name]).strip()
+            # Stricter check: must be non-empty and not a "falsey" string
+            if val and val.lower() not in ('0', 'no', 'false', 'nan', 'none'):
                 stable_wh_key = dw_name.replace(" ", "_")
-                target_id = id_map[stable_wh_key]
-                past_edges.append(Edge(source=source_id, target=target_id))
+                if stable_wh_key in id_map:
+                    target_id = id_map[stable_wh_key]
+                    past_edges.append(Edge(source=source_id, target=target_id))
+    
+    logger.info(f"Generated {len(past_edges)} edges for 'Past' state.")
     past_graph = GraphData(nodes=past_nodes, edges=past_edges)
 
     # --- Build State 2: Current ---
@@ -194,13 +283,14 @@ def get_graph_data() -> Dict[str, GraphData]:
     future_edges.extend([Edge(source=id_map["dv"], target=ldw.id) for ldw in logical_dws])
     future_graph = GraphData(nodes=future_nodes, edges=future_edges)
 
+    logger.info("Graph generation complete.")
     return {"past": past_graph, "current": current_graph, "future": future_graph}
 
 
 # --- API Endpoint ---
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
+async def read_root(request: Request) -> Any:
     """Main endpoint that renders the HTML page with the graph data."""
     try:
         all_graphs = get_graph_data()
@@ -211,5 +301,21 @@ async def read_root(request: Request):
             {"request": request, "graph_data": graph_data_json}
         )
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        return HTMLResponse(content=f"<h1>An unexpected error occurred</h1>", status_code=500)
+        logger.exception("An unexpected error occurred during request handling.")
+        return HTMLResponse(content=f"<h1>An unexpected error occurred</h1><pre>{e}</pre>", status_code=500)
+
+@app.get("/logs")
+async def get_logs() -> Dict[str, List[str]]:
+    """Returns the recent logs."""
+    return {"logs": log_buffer}
+
+# Simple websocket for logs (optional expansion)
+websocket_sink = WebSocketSink()
+@app.websocket("/ws/logs")
+async def websocket_endpoint(websocket: WebSocket) -> None:
+    await websocket_sink.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text() # Keep connection open
+    except WebSocketDisconnect:
+        websocket_sink.disconnect(websocket)

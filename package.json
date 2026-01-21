@@ -1,0 +1,21 @@
+{
+  "name": "data-lineage-visualizer",
+  "version": "1.0.0",
+  "description": "Data Lineage Visualizer with FastAPI and Vis.js",
+  "scripts": {
+    "dev": "uv run uvicorn main:app --reload",
+    "lint": "pnpm run lint:py && pnpm run lint:js",
+    "lint:fix": "uv run ruff check . --fix && eslint static/js --fix",
+    "lint:py": "uv run ruff check .",
+    "lint:js": "eslint static/js",
+    "typecheck": "pnpm run typecheck:py && pnpm run typecheck:js",
+    "typecheck:py": "uv run mypy .",
+    "typecheck:js": "tsc -p jsconfig.json",
+    "export:reqs": "uv export --format requirements-txt > requirements.txt"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "eslint-plugin-vue": "^9.21.1",
+    "typescript": "^5.3.3"
+  }
+}
