@@ -293,9 +293,23 @@ def get_graph_data() -> Dict[str, GraphData]:
             
         source_id = id_map[stable_feed_key]
         for dw_name in dw_cols:
-            val = str(row[dw_name]).strip()
-            # Stricter check: must be non-empty and not a "falsey" string
-            if val and val.lower() not in ('0', 'no', 'false', 'nan', 'none'):
+            raw_val = str(row[dw_name]).strip()
+            val = raw_val.upper()
+            
+            is_connected = False
+            if val == 'Y':
+                is_connected = True
+            elif val in ('N', '0', ''):
+                is_connected = False
+            else:
+                # Unexpected value - log warning and default to False
+                logger.warning(
+                    f"Unexpected value '{raw_val}' in column '{dw_name}' for feed '{feed_name}'. "
+                    "Expected Y/N/0/Blank. Treating as False."
+                )
+                is_connected = False
+
+            if is_connected:
                 stable_wh_key = dw_name.replace(" ", "_")
                 if stable_wh_key in id_map:
                     target_id = id_map[stable_wh_key]
