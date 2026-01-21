@@ -46,6 +46,7 @@
  * @property {boolean} isClustered
  * @property {string} viewMode
  * @property {boolean} showDebug
+ * @property {boolean} isLoading
  * @property {string[]} logs
  * @property {any} logInterval
  * @property {GraphNode[]} currentNodes
@@ -89,6 +90,7 @@ const App = {
             // New Robustness Features
             viewMode: 'graph', // 'graph' | 'table'
             showDebug: false,
+            isLoading: false,
             logs: [],
             logInterval: null,
             
@@ -371,6 +373,24 @@ const App = {
 
         /** @this {AppState} */
         drawGraph() {
+            // Set loading state immediately
+            this.isLoading = true;
+
+            // Use requestAnimationFrame to allow the UI to render the loading spinner
+            // before blocking the main thread with graph generation.
+            requestAnimationFrame(() => {
+                // Use a minimal timeout to ensure the render cycle completes
+                setTimeout(() => {
+                    this._drawGraphInternal();
+                }, 10);
+            });
+        },
+
+        /** 
+         * Internal method for graph drawing to be called async
+         * @this {AppState} 
+         */
+        _drawGraphInternal() {
             // Clean up previous network instance and timers
             if (this.network) {
                 this.network.destroy();
@@ -381,12 +401,16 @@ const App = {
             }
 
             const container = document.getElementById('network-graph');
-            if (!container) return; // Guard clause if viewMode switched rapidly
+            if (!container) {
+                this.isLoading = false;
+                return; // Guard clause if viewMode switched rapidly
+            }
 
             // Deep copy data for modifications
             const rawData = this.graphData[this.selectedState];
             if (!rawData) {
                 console.error(`No data for state: ${this.selectedState}`);
+                this.isLoading = false;
                 return;
             }
             const data = JSON.parse(JSON.stringify(rawData));
@@ -444,6 +468,9 @@ const App = {
                 // @ts-ignore
                 this.searchNodes(this.searchTerm);
             }
+            
+            // Turn off loading state
+            this.isLoading = false;
         },
 
         applyManualLTRLayout(nodes) {
