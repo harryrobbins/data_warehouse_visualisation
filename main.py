@@ -4,16 +4,21 @@ import json
 import jinja2
 import math
 import sys
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Union
 
 import pandas as pd
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from loguru import logger
+
+# --- Load Environment Variables ---
+load_dotenv()
 
 # --- Logger Setup ---
 # Configure loguru to intercept standard logging and output to stdout (which we can capture if needed)
@@ -146,22 +151,48 @@ def get_graph_data() -> Dict[str, GraphData]:
     Reads data, generates unique IDs for all nodes, and builds the graph data.
     """
     logger.info("Starting graph data generation...")
-    data_dir = Path(__file__).parent / "data"
-    excel_path = data_dir / "Warehouse Feeds Matrix.xlsx"
-    csv_path = data_dir / "warehouse_feeds.csv"
+    
+    # Resolve Data Path from Environment Variable or Defaults
+    env_data_path = os.getenv("DATA_FILE_PATH")
+    if env_data_path:
+        # Check if the env var is an absolute path or relative to CWD
+        possible_path = Path(env_data_path)
+        if possible_path.exists():
+            excel_path = possible_path
+            logger.info(f"Using data file from DATA_FILE_PATH: {excel_path}")
+        else:
+             # Try relative to the app directory if not found directly
+            possible_path = Path(__file__).parent / env_data_path
+            if possible_path.exists():
+                excel_path = possible_path
+                logger.info(f"Using data file from DATA_FILE_PATH (relative): {excel_path}")
+            else:
+                logger.warning(f"DATA_FILE_PATH set to '{env_data_path}' but file not found. Falling back to defaults.")
+                excel_path = Path(__file__).parent / "data" / "Warehouse Feeds Matrix.xlsx"
+    else:
+        excel_path = Path(__file__).parent / "data" / "Warehouse Feeds Matrix.xlsx"
 
+    csv_path = Path(__file__).parent / "data" / "warehouse_feeds.csv"
+
+    # Load Data
     if excel_path.exists():
         try:
             logger.info(f"Reading Excel file: {excel_path}")
-            df = pd.read_excel(excel_path, sheet_name="Warehouse Feeds Matrix", engine='openpyxl')
+            df = pd.read_excel(excel_path, sheet_name=0, engine='openpyxl') # Use first sheet by default if specific name fails? kept explicit for now but safer
         except Exception as e:
-            logger.error(f"Could not read Excel file at {excel_path}. Error: {e}")
-            raise FileNotFoundError(f"Could not read Excel file at {excel_path}. Error: {e}")
+             # Fallback to specifically named sheet might fail if user provides custom file
+            try:
+                logger.warning(f"Failed to read specific sheet. Trying first sheet. Error: {e}")
+                df = pd.read_excel(excel_path, sheet_name=0, engine='openpyxl')
+            except Exception as e2:
+                logger.error(f"Could not read Excel file at {excel_path}. Error: {e2}")
+                raise FileNotFoundError(f"Could not read Excel file at {excel_path}. Error: {e2}")
+
     elif csv_path.exists():
         logger.info(f"Reading CSV file: {csv_path}")
         df = pd.read_csv(csv_path)
     else:
-        logger.error("No data file found.")
+        logger.error(f"No data file found. Looked for {excel_path} and {csv_path}")
         raise FileNotFoundError(f"No data file found. Looked for {excel_path} and {csv_path}")
 
     # Data Cleaning: Replace all NaNs with empty strings immediately
