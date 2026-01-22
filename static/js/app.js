@@ -69,6 +69,7 @@
  * @property {Object.<string, GraphNode>} nodeIdMap
  * @property {function(): void} calculateConnectivity
  * @property {function(string): {count: number, labels: string[]}} getNodeConnections
+ * @property {Object.<string, Object.<string, {x: number, y: number}>>} layoutCache
  */
 
 // static/js/app.js - Optimized for large graphs (500+ nodes) with Type Checking via JSDoc
@@ -98,7 +99,11 @@ const App = {
             /** @type {Object.<string, string[]>} */
             connectionMap: {},
             /** @type {Object.<string, GraphNode>} */
-            nodeIdMap: {}
+            nodeIdMap: {},
+            
+            // Layout Position Cache
+            /** @type {Object.<string, Object.<string, {x: number, y: number}>>} */
+            layoutCache: {}
         };
     },
     computed: {
@@ -235,9 +240,9 @@ const App = {
                     avoidOverlap: 0.5
                 },
                 stabilization: {
-                    enabled: true,
-                    iterations: 500, // Reduced from 2000 for faster initial layout
-                    updateInterval: 50, // Update UI less frequently
+                    enabled: false, // Disable stabilization so nodes start moving immediately
+                    iterations: 500,
+                    updateInterval: 50,
                     fit: true
                 },
                 adaptiveTimestep: true, // Let vis.js optimize timestep
@@ -257,8 +262,8 @@ const App = {
                     avoidOverlap: 0.3
                 },
                 stabilization: {
-                    enabled: true,
-                    iterations: 300, // Fewer iterations for faster stabilization
+                    enabled: false, // Disable stabilization
+                    iterations: 300,
                     updateInterval: 100,
                     fit: true
                 },
@@ -427,15 +432,48 @@ const App = {
                 width: Math.min(edge.width || 1, 2), // Limit edge width
             }));
 
-            // Pre-position nodes based on layout
-            if (this.selectedLayout === 'hierarchicalLR') {
-                this.applyManualLTRLayout(data.nodes);
-            } else if (this.selectedLayout === 'clusteredForce') {
-                this.applyRoughPositioning(data.nodes);
+            // --- Hide Disconnected Nodes ---
+            // Create a set of all node IDs that have at least one edge in this view
+            const connectedNodeIds = new Set();
+            data.edges.forEach(edge => {
+                connectedNodeIds.add(edge.from);
+                connectedNodeIds.add(edge.to);
+            });
+
+            // Filter nodes to keep only those that are connected
+            data.nodes = data.nodes.filter(node => connectedNodeIds.has(node.id));
+
+            // Check for cached layout positions
+            const cacheKey = `${this.selectedState}_${this.selectedLayout}`;
+            /** @type {Object.<string, {x: number, y: number}>} */
+            // @ts-ignore
+            const cachedPositions = this.layoutCache[cacheKey];
+
+            if (cachedPositions) {
+                // Apply cached positions
+                data.nodes = data.nodes.map(node => {
+                    if (cachedPositions[node.id]) {
+                        node.x = cachedPositions[node.id].x;
+                        node.y = cachedPositions[node.id].y;
+                    }
+                    return node;
+                });
+            } else {
+                // Pre-position nodes based on layout ONLY if no cache
+                if (this.selectedLayout === 'hierarchicalLR') {
+                    this.applyManualLTRLayout(data.nodes);
+                } else if (this.selectedLayout === 'clusteredForce') {
+                    this.applyRoughPositioning(data.nodes);
+                }
             }
 
             // @ts-ignore
             const options = this.getLayoutOptions();
+
+            // If we have cached positions, we can disable stabilization to load instantly
+            if (cachedPositions && options.physics) {
+                options.physics.stabilization = { enabled: false };
+            }
 
             // Sync the physics button with the layout's default state
             this.isPhysicsEnabled = options.physics !== false;
@@ -446,6 +484,11 @@ const App = {
 
             // Optimized event listeners for large graphs
             this.network.once('stabilizationIterationsDone', () => {
+                // Save stable positions to cache
+                const positions = this.network.getPositions();
+                // @ts-ignore
+                this.layoutCache[cacheKey] = positions;
+
                 // Auto-disable physics after stabilization for better performance
                 this.stabilizationTimeout = setTimeout(() => {
                     if (this.network) {
@@ -453,6 +496,13 @@ const App = {
                         this.isPhysicsEnabled = false;
                     }
                 }, this.selectedLayout === 'hierarchicalLR' ? 2000 : 3000);
+            });
+
+            // Update cache when user manually moves nodes
+            this.network.on("dragEnd", () => {
+                 const positions = this.network.getPositions();
+                 // @ts-ignore
+                 this.layoutCache[cacheKey] = positions;
             });
 
             this.network.on("selectNode", (params) => {

@@ -174,19 +174,20 @@ def get_graph_data() -> Dict[str, GraphData]:
 
     csv_path = Path(__file__).parent / "data" / "warehouse_feeds.csv"
 
+    # Resolve Sheet Name from Environment Variable
+    sheet_name: Union[str, int] = os.getenv("DATA_SHEET_NAME", 0)
+    # If it looks like a number, treat it as an index
+    if isinstance(sheet_name, str) and sheet_name.isdigit():
+        sheet_name = int(sheet_name)
+
     # Load Data
     if excel_path.exists():
         try:
-            logger.info(f"Reading Excel file: {excel_path}")
-            df = pd.read_excel(excel_path, sheet_name=0, engine='openpyxl') # Use first sheet by default if specific name fails? kept explicit for now but safer
+            logger.info(f"Reading Excel file: {excel_path} (Sheet: {sheet_name})")
+            df = pd.read_excel(excel_path, sheet_name=sheet_name, engine='openpyxl')
         except Exception as e:
-             # Fallback to specifically named sheet might fail if user provides custom file
-            try:
-                logger.warning(f"Failed to read specific sheet. Trying first sheet. Error: {e}")
-                df = pd.read_excel(excel_path, sheet_name=0, engine='openpyxl')
-            except Exception as e2:
-                logger.error(f"Could not read Excel file at {excel_path}. Error: {e2}")
-                raise FileNotFoundError(f"Could not read Excel file at {excel_path}. Error: {e2}")
+            logger.error(f"Could not read Excel file at {excel_path} (Sheet: {sheet_name}). Error: {e}")
+            raise FileNotFoundError(f"Could not read Excel file at {excel_path}. Error: {e}")
 
     elif csv_path.exists():
         logger.info(f"Reading CSV file: {csv_path}")
