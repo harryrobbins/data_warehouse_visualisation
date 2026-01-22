@@ -124,11 +124,28 @@ const App = {
         },
         /**
          * Returns the list of nodes for the currently selected state.
+         * Filtered to only include nodes that have at least one edge in the current state.
          * @this {AppState}
          * @returns {GraphNode[]}
          */
         currentNodes() {
-            return this.graphData[this.selectedState]?.nodes || [];
+            const rawNodes = this.graphData[this.selectedState]?.nodes || [];
+            const rawEdges = this.graphData[this.selectedState]?.edges || [];
+
+            // Filter out disconnected nodes
+            const connectedIds = new Set();
+            rawEdges.forEach(edge => {
+                // Handle both alias ('from') and field name ('source') just in case
+                // @ts-ignore
+                const from = edge.from || edge.source;
+                // @ts-ignore
+                const to = edge.to || edge.target;
+                
+                if (from) connectedIds.add(from);
+                if (to) connectedIds.add(to);
+            });
+
+            return rawNodes.filter(node => connectedIds.has(node.id));
         },
         /**
          * Returns filtered nodes for the Table View.
@@ -396,131 +413,140 @@ const App = {
          * @this {AppState} 
          */
         _drawGraphInternal() {
-            // Clean up previous network instance and timers
-            if (this.network) {
-                this.network.destroy();
-                this.network = null;
-            }
-            if (this.stabilizationTimeout) {
-                clearTimeout(this.stabilizationTimeout);
-            }
-
-            const container = document.getElementById('network-graph');
-            if (!container) {
-                this.isLoading = false;
-                return; // Guard clause if viewMode switched rapidly
-            }
-
-            // Deep copy data for modifications
-            const rawData = this.graphData[this.selectedState];
-            if (!rawData) {
-                console.error(`No data for state: ${this.selectedState}`);
-                this.isLoading = false;
-                return;
-            }
-            const data = JSON.parse(JSON.stringify(rawData));
-
-            // Optimize node rendering for performance
-            // @ts-ignore
-            data.nodes = this.optimizeNodeRendering(data.nodes);
-
-            // Optimize edge rendering
-            // @ts-ignore
-            data.edges = data.edges.map(edge => ({
-                ...edge,
-                smooth: false, // Disable smooth edges for performance
-                width: Math.min(edge.width || 1, 2), // Limit edge width
-            }));
-
-            // --- Hide Disconnected Nodes ---
-            // Create a set of all node IDs that have at least one edge in this view
-            const connectedNodeIds = new Set();
-            data.edges.forEach(edge => {
-                connectedNodeIds.add(edge.from);
-                connectedNodeIds.add(edge.to);
-            });
-
-            // Filter nodes to keep only those that are connected
-            data.nodes = data.nodes.filter(node => connectedNodeIds.has(node.id));
-
-            // Check for cached layout positions
-            const cacheKey = `${this.selectedState}_${this.selectedLayout}`;
-            /** @type {Object.<string, {x: number, y: number}>} */
-            // @ts-ignore
-            const cachedPositions = this.layoutCache[cacheKey];
-
-            if (cachedPositions) {
-                // Apply cached positions
-                data.nodes = data.nodes.map(node => {
-                    if (cachedPositions[node.id]) {
-                        node.x = cachedPositions[node.id].x;
-                        node.y = cachedPositions[node.id].y;
-                    }
-                    return node;
-                });
-            } else {
-                // Pre-position nodes based on layout ONLY if no cache
-                if (this.selectedLayout === 'hierarchicalLR') {
-                    this.applyManualLTRLayout(data.nodes);
-                } else if (this.selectedLayout === 'clusteredForce') {
-                    this.applyRoughPositioning(data.nodes);
+            try {
+                // Clean up previous network instance and timers
+                if (this.network) {
+                    this.network.destroy();
+                    this.network = null;
                 }
-            }
+                if (this.stabilizationTimeout) {
+                    clearTimeout(this.stabilizationTimeout);
+                    this.stabilizationTimeout = null;
+                }
 
-            // @ts-ignore
-            const options = this.getLayoutOptions();
+                const container = document.getElementById('network-graph');
+                if (!container) return; // Guard clause
 
-            // If we have cached positions, we can disable stabilization to load instantly
-            if (cachedPositions && options.physics) {
-                options.physics.stabilization = { enabled: false };
-            }
+                // Deep copy data for modifications
+                const rawData = this.graphData[this.selectedState];
+                if (!rawData) {
+                    console.error(`No data for state: ${this.selectedState}`);
+                    return;
+                }
+                const data = JSON.parse(JSON.stringify(rawData));
 
-            // Sync the physics button with the layout's default state
-            this.isPhysicsEnabled = options.physics !== false;
-
-            // Use Vue.markRaw to prevent Vue from making the vis.Network instance reactive.
-            // This fixes the "TypeError: Private element is not present on this object" error.
-            this.network = Vue.markRaw(new vis.Network(container, data, options));
-
-            // Optimized event listeners for large graphs
-            this.network.once('stabilizationIterationsDone', () => {
-                // Save stable positions to cache
-                const positions = this.network.getPositions();
+                // Optimize node rendering for performance
                 // @ts-ignore
-                this.layoutCache[cacheKey] = positions;
+                data.nodes = this.optimizeNodeRendering(data.nodes);
 
-                // Auto-disable physics after stabilization for better performance
-                this.stabilizationTimeout = setTimeout(() => {
-                    if (this.network) {
-                        this.network.setOptions({ physics: false });
-                        this.isPhysicsEnabled = false;
+                // Optimize edge rendering
+                // @ts-ignore
+                data.edges = data.edges.map(edge => ({
+                    ...edge,
+                    smooth: false, // Disable smooth edges for performance
+                    width: Math.min(edge.width || 1, 2), // Limit edge width
+                }));
+
+                // --- Hide Disconnected Nodes ---
+                // Create a set of all node IDs that have at least one edge in this view
+                const connectedNodeIds = new Set();
+                data.edges.forEach(edge => {
+                    // Handle both alias ('from') and field name ('source') just in case
+                    // @ts-ignore
+                    const from = edge.from || edge.source;
+                    // @ts-ignore
+                    const to = edge.to || edge.target;
+
+                    if (from) connectedNodeIds.add(from);
+                    if (to) connectedNodeIds.add(to);
+                });
+
+                // Filter nodes to keep only those that are connected
+                data.nodes = data.nodes.filter(node => connectedNodeIds.has(node.id));
+
+                // Check for cached layout positions
+                const cacheKey = `${this.selectedState}_${this.selectedLayout}`;
+                /** @type {Object.<string, {x: number, y: number}>} */
+                // @ts-ignore
+                const cachedPositions = this.layoutCache[cacheKey];
+
+                if (cachedPositions) {
+                    // Apply cached positions
+                    data.nodes = data.nodes.map(node => {
+                        if (cachedPositions[node.id]) {
+                            node.x = cachedPositions[node.id].x;
+                            node.y = cachedPositions[node.id].y;
+                        }
+                        return node;
+                    });
+                } else {
+                    // Pre-position nodes based on layout ONLY if no cache
+                    if (this.selectedLayout === 'hierarchicalLR') {
+                        this.applyManualLTRLayout(data.nodes);
+                    } else if (this.selectedLayout === 'clusteredForce') {
+                        this.applyRoughPositioning(data.nodes);
                     }
-                }, this.selectedLayout === 'hierarchicalLR' ? 2000 : 3000);
-            });
+                }
 
-            // Update cache when user manually moves nodes
-            this.network.on("dragEnd", () => {
-                 const positions = this.network.getPositions();
-                 // @ts-ignore
-                 this.layoutCache[cacheKey] = positions;
-            });
-
-            this.network.on("selectNode", (params) => {
-                this.applyHighlight(params.nodes);
-            });
-
-            this.network.on("deselectNode", () => {
-                this.resetNodeStyles();
-            });
-
-            // Re-apply search highlight if needed after redraw
-            if (this.searchTerm) {
                 // @ts-ignore
-                this.searchNodes(this.searchTerm);
+                const options = this.getLayoutOptions();
+
+                // If we have cached positions, we can disable stabilization to load instantly
+                // (Already disabled globally, but keeping for clarity/override)
+                if (cachedPositions && options.physics) {
+                    options.physics.stabilization = { enabled: false };
+                }
+
+                // Sync the physics button with the layout's default state
+                this.isPhysicsEnabled = options.physics !== false;
+
+                // Use Vue.markRaw to prevent Vue from making the vis.Network instance reactive.
+                this.network = Vue.markRaw(new vis.Network(container, data, options));
+
+                // --- Physics Auto-Stop Logic ---
+                // Since stabilization is disabled (to show movement immediately), 'stabilizationIterationsDone' 
+                // will NOT fire. We must manually stop physics after a set time to prevent infinite jiggling.
+                if (this.isPhysicsEnabled) {
+                    this.stabilizationTimeout = setTimeout(() => {
+                        if (this.network && this.isPhysicsEnabled) {
+                            this.network.setOptions({ physics: false });
+                            this.isPhysicsEnabled = false;
+                            
+                            // Save "settled" positions to cache
+                            const positions = this.network.getPositions();
+                            // @ts-ignore
+                            this.layoutCache[cacheKey] = positions;
+                        }
+                    }, 4000); // Stop after 4 seconds
+                }
+
+                // Update cache when user manually moves nodes
+                this.network.on("dragEnd", () => {
+                     const positions = this.network.getPositions();
+                     // @ts-ignore
+                     this.layoutCache[cacheKey] = positions;
+                });
+
+                this.network.on("selectNode", (params) => {
+                    this.applyHighlight(params.nodes);
+                });
+
+                this.network.on("deselectNode", () => {
+                    this.resetNodeStyles();
+                });
+
+                // Re-apply search highlight if needed after redraw
+                if (this.searchTerm) {
+                    // @ts-ignore
+                    this.searchNodes(this.searchTerm);
+                }
+
+            } catch (error) {
+                console.error("Error drawing graph:", error);
+            } finally {
+                // ALWAYS turn off loading state, even if errors occur
+                this.isLoading = false;
             }
-            
-            // Turn off loading state
-            this.isLoading = false;
         },
 
         applyManualLTRLayout(nodes) {
@@ -706,8 +732,9 @@ const App = {
                 return;
             }
 
-            const allNodes = this.graphData[this.selectedState].nodes;
-            const matchedNodes = allNodes.filter(node =>
+            // USE currentNodes to ensure we only search visible/connected nodes
+            const visibleNodes = this.currentNodes;
+            const matchedNodes = visibleNodes.filter(node =>
                 String(node.label).toLowerCase().includes(lowerCaseQuery) ||
                 String(node.id).toLowerCase().includes(lowerCaseQuery)
             );
@@ -715,17 +742,23 @@ const App = {
             const nodesToSelect = matchedNodes.map(node => node.id);
 
             if (nodesToSelect.length > 0) {
-                this.network.selectNodes(nodesToSelect);
-                this.applyHighlight(nodesToSelect);
+                // Ensure the nodes actually exist in the Vis.js instance before selecting
+                // (redundant with currentNodes check but safe)
+                const validIds = nodesToSelect.filter(id => this.network.body.data.nodes.get(id));
+                
+                if (validIds.length > 0) {
+                    this.network.selectNodes(validIds);
+                    this.applyHighlight(validIds);
 
-                // Focus on the first matched node to orient the user
-                this.network.focus(nodesToSelect[0], {
-                    scale: 1.0,
-                    animation: {
-                        duration: 500,
-                        easingFunction: 'easeInOutQuad'
-                    }
-                });
+                    // Focus on the first matched node to orient the user
+                    this.network.focus(validIds[0], {
+                        scale: 1.0,
+                        animation: {
+                            duration: 500,
+                            easingFunction: 'easeInOutQuad'
+                        }
+                    });
+                }
             } else {
                 // If no match, maybe reset or show feedback?
                 // For now, let's reset so they know nothing matched in this view
